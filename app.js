@@ -125,7 +125,7 @@ function renderChars(){
     d.className='char-card'+(i===activeIndex?' active':'');
     d.innerHTML=`<b>${c.name}</b> ${i===activeIndex?'(IN ACTIVE)':''}<br>
       HP:${c.hp}/${c.maxHp} Shield:${c.shield}<br>
-      ${c.statuses.map(s=>`${s.type} x${s.stacks}
+      ${c.statuses.map(s=>`${s.type} x${s.stacks} ${s.duration===0 ? '(∞)' : `(${s.duration}T)`}
         <button onclick="editStatus(${i},'${s.id}')">✎</button>
         <button onclick="removeStatus(${i},'${s.id}')">✖</button>`).join('<br>')||'—'}
       <br><button onclick="activeIndex=${i};log('Active → ${c.name}');renderAll()">Active</button>`;
@@ -191,14 +191,48 @@ function endTurn(){ log('() End Turn'); nextTurn(); }
 
 function nextTurn(){
   if(!characters.length) return;
-  activeIndex=(activeIndex+1)%characters.length;
-  const ch=characters[activeIndex];
-  ch.statuses.forEach(s=>{
-    if(s.type==='bleed') ch.hp-=s.stacks;
-    if(s.type==='burn') ch.hp-=2*s.stacks;
-    if(s.type==='regen') ch.hp+=3*s.stacks;
+
+  // เปลี่ยน Active
+  activeIndex = (activeIndex + 1) % characters.length;
+  const ch = characters[activeIndex];
+  if(!ch || ch.dead) return;
+
+  log(`() Turn Start → ${ch.name}`);
+
+  // ===== APPLY STATUS & TICK DURATION =====
+  ch.statuses.slice().forEach(s => {
+    // APPLY EFFECT
+    if(s.type === 'bleed'){
+      ch.hp -= s.stacks;
+      log(`${ch.name} suffers Bleed (-${s.stacks} HP)`);
+    }
+    if(s.type === 'burn'){
+      ch.hp -= 2 * s.stacks;
+      log(`${ch.name} suffers Burn (-${2*s.stacks} HP)`);
+    }
+    if(s.type === 'regen'){
+      ch.hp += 3 * s.stacks;
+      log(`${ch.name} regenerates (+${3*s.stacks} HP)`);
+    }
+
+    // DURATION TICK
+    if(s.duration > 0){
+      s.duration--;
+      if(s.duration <= 0){
+        log(`${ch.name}'s ${s.type} expired`);
+        ch.statuses = ch.statuses.filter(x => x.id !== s.id);
+      }
+    }
   });
-  log(`() Turn → ${ch.name}`);
+
+  // CHECK DEATH AFTER EFFECT
+  if(ch.hp <= 0){
+    ch.hp = 0;
+    ch.dead = true;
+    ch.statuses = [];
+    log(`${ch.name} defeated`);
+  }
+
+  log(`() Turn End → ${ch.name}`);
   renderAll();
 }
-
