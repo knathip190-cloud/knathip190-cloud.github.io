@@ -242,4 +242,3 @@ function nextTurn(){
 }
 
 document.addEventListener('DOMContentLoaded',init);
-
