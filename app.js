@@ -1,53 +1,63 @@
-/* ================= FIXED VERSION =================
-   Add Effect / Search / Stack / Edit / Remove
-   (patched to work with your current HTML/CSS)
-================================================ */
+/* ================= FINAL CLEAN VERSION =================
+   Board Game Status → HP Simulator
+   - Active selection (IN ACTIVE)
+   - Grid target select
+   - Attack target dropdown
+   - Turn / End Turn feedback
+   - Add / Search / Edit / Remove Effects
+======================================================== */
 
-// Interactive per-character simulator with Goddess of Weapons & Heaven's Punishment
+/* ================= STATUS DEFINITIONS ================= */
 const statusDefinitions = {
-  bleed: { key:'bleed', name:'Bleed', stackable:true, defaultDuration:2, trigger:'start', description:'-1 HP/turn per stack' },
-  broken: { key:'broken', name:'Broken', stackable:true, defaultDuration:2, trigger:'start', description:'-2 HP/turn per stack and -1 dice/stack' },
-  burn: { key:'burn', name:'Burn', stackable:true, defaultDuration:1, trigger:'start', description:'-2 HP/turn per stack' },
-  poison: { key:'poison', name:'Poison', stackable:true, defaultDuration:2, trigger:'start', description:'-1% current HP/turn per stack' },
-  mark_of_sin: { key:'mark_of_sin', name:'Mark of Sin', stackable:true, defaultDuration:0, trigger:'start', description:'-1 HP per stack/turn' },
-  regen: { key:'regen', name:'Regen', stackable:true, defaultDuration:1, trigger:'start', description:'+3 HP at start-of-turn' },
-  shield: { key:'shield', name:'Shield', stackable:false, defaultDuration:0, trigger:'start', description:'absorbs damage before HP' },
-  injury: { key:'injury', name:'Injury', stackable:false, defaultDuration:1, trigger:'start', description:'Prevents bleed countdown decrement' },
-  fear: { key:'fear', name:'Fear', stackable:true, defaultDuration:2, trigger:'start', description:'+5% dmg taken and -10% dmg dealt' },
-  goddess_form: { key:'goddess_form', name:'Goddess Form', stackable:false, defaultDuration:2, trigger:'start', description:'Active goddess of weapons (2 turns)' },
-  moral: { key:'moral', name:'Moral', stackable:true, defaultDuration:0, trigger:'start', description:'+1 heal per stack/turn' }
+  bleed:{key:'bleed',name:'Bleed',stackable:true,defaultDuration:2,description:'-1 HP/turn per stack'},
+  burn:{key:'burn',name:'Burn',stackable:true,defaultDuration:1,description:'-2 HP/turn per stack'},
+  poison:{key:'poison',name:'Poison',stackable:true,defaultDuration:2,description:'-1% HP/turn per stack'},
+  regen:{key:'regen',name:'Regen',stackable:true,defaultDuration:1,description:'+3 HP/turn per stack'},
+  shield:{key:'shield',name:'Shield',stackable:false,defaultDuration:0,description:'Absorb damage'},
+  mark_of_sin:{key:'mark_of_sin',name:'Mark of Sin',stackable:true,defaultDuration:0,description:'Special mark'},
+  moral:{key:'moral',name:'Moral',stackable:true,defaultDuration:0,description:'Heal on turn start'}
 };
 
+/* ================= CORE STATE ================= */
 let characters = [];
 let activeIndex = null;
 let gridSize = 8;
 let moveMode = false;
 
 const $ = id => document.getElementById(id);
-const log = s => { $('log').textContent += s + '\n'; $('log').scrollTop = $('log').scrollHeight; };
+const log = msg => {
+  $('log').textContent += msg + '\n';
+  $('log').scrollTop = $('log').scrollHeight;
+};
+
+/* ================= INIT ================= */
+document.addEventListener('DOMContentLoaded', init);
 
 function init(){
   $('addCharBtn').onclick = () => {
-    const n = $('charName').value || `Char${characters.length+1}`;
-    const hp = parseInt($('charHp').value||'100',10);
-    addCharacter(n,hp,$('charTeam').value);
+    addCharacter(
+      $('charName').value || `Char${characters.length+1}`,
+      parseInt($('charHp').value||'100',10),
+      $('charTeam').value
+    );
+    $('charName').value='';
   };
 
   $('grid').onclick = gridClickHandler;
   $('attackBtn').onclick = handleAttack;
-  $('moveBtn').onclick = ()=>moveMode=true;
-  $('cancelMoveBtn').onclick = ()=>moveMode=false;
-  $('endTurnBtn').onclick = nextTurn;
-  $('nextTurnBtn').onclick = nextTurn;
+  $('moveBtn').onclick = ()=>{moveMode=true;log('Move mode');};
+  $('cancelMoveBtn').onclick = ()=>{moveMode=false;log('Move cancelled');};
+  $('endTurnBtn').onclick = endTurn;
+  $('nextTurnBtn').onclick = endTurn;
 
-  // ✅ safe binding
-  $('effectSearch')?.addEventListener('input', renderEffectResults);
+  $('effectSearch').addEventListener('input', renderEffectResults);
 
   renderAll();
   renderEffectResults();
   log('Ready.');
 }
 
+/* ================= CHARACTER ================= */
 function addCharacter(name,hp,team){
   characters.push({
     id:Date.now()+Math.random(),
@@ -60,97 +70,66 @@ function addCharacter(name,hp,team){
   renderAll();
 }
 
-/* ================= EFFECT CORE (FIXED) ================= */
-function addStatusToCharacter(char,type,stacks=1,duration=null){
-  const def = statusDefinitions[type];
-  if(!def) return alert('Unknown status');
-
-  const existing = char.statuses.find(s=>s.type===type);
-
-  // stackable → merge
-  if(existing && def.stackable){
-    existing.stacks += stacks;
-    if(existing.duration>0 && duration!==0){
-      existing.duration = Math.max(existing.duration, duration ?? def.defaultDuration);
-    }
+/* ================= STATUS ================= */
+function addStatusToCharacter(char,type,stacks=1){
+  const def=statusDefinitions[type]; if(!def) return;
+  const ex=char.statuses.find(s=>s.type===type);
+  if(ex && def.stackable){ ex.stacks+=stacks; return; }
+  if(!def.stackable) char.statuses=char.statuses.filter(s=>s.type!==type);
+  if(type==='shield'){
+    const v=parseInt(prompt('Shield amount','20'),10)||0;
+    char.shield+=v; log(`${char.name} gained shield ${v}`);
     return;
   }
-
-  // non-stackable → replace
-  if(!def.stackable)
-    char.statuses = char.statuses.filter(s=>s.type!==type);
-
-  const entry = {
-    id:Date.now()+Math.random(),
-    type,
-    stacks,
-    duration: duration ?? def.defaultDuration
-  };
-
-  if(type==='shield'){
-    const val = parseInt(prompt('Shield amount','20')||'0',10);
-    char.shield += Math.max(0,val);
-    log(`${char.name} gained shield ${val}`);
-  }
-
-  char.statuses.push(entry);
+  char.statuses.push({id:Date.now()+Math.random(),type,stacks,duration:def.defaultDuration});
 }
 
-function removeStatus(charIndex,statusId){
-  characters[charIndex].statuses =
-    characters[charIndex].statuses.filter(s=>s.id!==statusId);
+function editStatus(ci,id){
+  const s=characters[ci].statuses.find(x=>x.id===id); if(!s) return;
+  const st=parseInt(prompt('Stacks',s.stacks),10);
+  if(!isNaN(st)) s.stacks=st;
   renderAll();
 }
 
-function editStatus(charIndex,statusId){
-  const s = characters[charIndex].statuses.find(x=>x.id===statusId);
-  if(!s) return;
-  const st = parseInt(prompt('Stacks',s.stacks),10);
-  const du = parseInt(prompt('Duration',s.duration),10);
-  if(!isNaN(st)) s.stacks = st;
-  if(!isNaN(du)) s.duration = du;
+function removeStatus(ci,id){
+  characters[ci].statuses=characters[ci].statuses.filter(s=>s.id!==id);
   renderAll();
 }
 
 /* ================= EFFECT SEARCH ================= */
 function renderEffectResults(){
-  const box = $('effectResults');
-  if(!box) return;
-  const q = $('effectSearch').value.toLowerCase();
-  box.innerHTML='';
-
+  const box=$('effectResults'); box.innerHTML='';
+  const q=$('effectSearch').value.toLowerCase();
   Object.values(statusDefinitions)
-    .filter(e=>e.name.toLowerCase().includes(q)||e.key.includes(q))
+    .filter(e=>e.name.toLowerCase().includes(q))
     .forEach(e=>{
-      const row = document.createElement('div');
-      row.className='effect-row';
-      row.innerHTML = `<span><b>${e.name}</b> <small>${e.description}</small></span>`;
-      const btn = document.createElement('button');
-      btn.textContent='Add';
-      btn.onclick=()=>{
-        if(activeIndex===null) return alert('Select character');
+      const r=document.createElement('div'); r.className='effect-row';
+      r.innerHTML=`<b>${e.name}</b> <small>${e.description}</small>`;
+      const b=document.createElement('button'); b.textContent='Add';
+      b.onclick=()=>{
+        if(activeIndex===null) return alert('Select Active');
         addStatusToCharacter(characters[activeIndex],e.key);
         renderAll();
       };
-      row.appendChild(btn);
-      box.appendChild(row);
+      r.appendChild(b); box.appendChild(r);
     });
 }
 
 /* ================= RENDER ================= */
-function renderAll(){ renderChars(); renderGrid(); }
+function renderAll(){ renderChars(); renderGrid(); renderActionPanel(); }
 
 function renderChars(){
-  const list=$('charList'); list.innerHTML='';
+  const l=$('charList'); l.innerHTML='';
   characters.forEach((c,i)=>{
     const d=document.createElement('div');
     d.className='char-card'+(i===activeIndex?' active':'');
-    d.innerHTML=`<b>${c.name}</b> HP:${c.hp}/${c.maxHp} Shield:${c.shield}<br>
-      ${c.statuses.map(s=>`${s.type} x${s.stacks} (${s.duration})
+    d.innerHTML=`<b>${c.name}</b> ${i===activeIndex?'(IN ACTIVE)':''}<br>
+      HP:${c.hp}/${c.maxHp} Shield:${c.shield}<br>
+      ${c.statuses.map(s=>`${s.type} x${s.stacks}
         <button onclick="editStatus(${i},'${s.id}')">✎</button>
         <button onclick="removeStatus(${i},'${s.id}')">✖</button>`).join('<br>')||'—'}
-      <br><button onclick="activeIndex=${i};renderAll()">Active</button>`;
-    list.appendChild(d);
+      <br><button onclick="activeIndex=${i};log('Active → ${c.name}');renderAll()">Active</button>`;
+    l.appendChild(d);
   });
 }
 
@@ -160,85 +139,66 @@ function renderGrid(){
     const c=characters.find(ch=>ch.x===x&&ch.y===y&&!ch.dead);
     const cell=document.createElement('div');
     cell.className='cell';
+    cell.dataset.x=x; cell.dataset.y=y;
     cell.textContent=c?c.name[0]:`${x},${y}`;
     g.appendChild(cell);
   }
 }
 
-/* ================= COMBAT / MOVE / TURN (RESTORED & FIXED) ================= */
+function renderActionPanel(){
+  const info=$('activeInfo'), panel=$('actionButtons');
+  if(activeIndex===null||!characters[activeIndex]){
+    info.textContent='No active character'; panel.classList.add('hidden'); return;
+  }
+  const ch=characters[activeIndex];
+  info.innerHTML=`<b>${ch.name}</b> <span style="color:green">(IN ACTIVE)</span>`;
+  panel.classList.remove('hidden');
+  const sel=$('attackTarget'); sel.innerHTML='<option value="">Select target</option>';
+  characters.forEach(c=>{ if(c.id!==ch.id&&!c.dead){
+    const o=document.createElement('option'); o.value=c.id; o.textContent=c.name;
+    sel.appendChild(o);
+  }});
+}
 
+/* ================= COMBAT / TURN ================= */
 function gridClickHandler(e){
-  const cell = e.target.closest('.cell'); if(!cell) return;
-  const x = parseInt(cell.dataset.x,10);
-  const y = parseInt(cell.dataset.y,10);
-
-  if(moveMode && activeIndex!==null){
-    const ch = characters[activeIndex];
-    const maxr = parseInt($('moveRange')?.value||'3',10);
-    const dist = Math.abs(ch.x-x)+Math.abs(ch.y-y);
-    if(dist<=maxr){
-      ch.x=x; ch.y=y;
-      moveMode=false;
-      $('moveBtn')?.classList.remove('hidden');
-      $('cancelMoveBtn')?.classList.add('hidden');
-      log(`${ch.name} moved to (${x},${y})`);
-      renderAll();
-    }
-    return;
+  const cell=e.target.closest('.cell'); if(!cell) return;
+  const x=parseInt(cell.dataset.x), y=parseInt(cell.dataset.y);
+  if(moveMode&&activeIndex!==null){
+    const ch=characters[activeIndex]; ch.x=x; ch.y=y;
+    moveMode=false; log(`${ch.name} moved`); renderAll(); return;
   }
-
-  const target = characters.find(c=>c.x===x&&c.y===y&&!c.dead);
-  if(target && activeIndex!==null){
-    $('attackTarget').value = target.id;
-    log(`Selected ${target.name} as target`);
-  }
+  const t=characters.find(c=>c.x===x&&c.y===y&&!c.dead);
+  if(t&&activeIndex!==null){ $('attackTarget').value=t.id; log(`Target → ${t.name}`); }
 }
 
 function handleAttack(){
-  if(activeIndex===null) return alert('No active character');
-  const attacker = characters[activeIndex];
-  const targetId = $('attackTarget').value;
-  if(!targetId) return alert('Select target');
-  const dmg = parseInt($('attackDmg').value||'0',10);
-  const target = characters.find(c=>String(c.id)===String(targetId));
-  if(!target) return;
-  applyDamageToCharacter(target,dmg,`Attacked by ${attacker.name}`);
-  renderAll();
+  if(activeIndex===null) return;
+  const tId=$('attackTarget').value; if(!tId) return alert('Select target');
+  const t=characters.find(c=>String(c.id)===String(tId));
+  const dmg=parseInt($('attackDmg').value||'0',10);
+  if(!t) return;
+  applyDamage(t,dmg); renderAll();
 }
 
-function applyDamageToCharacter(target,amount,reason=''){
-  if(amount<=0) return;
-  if(target.shield>0){
-    const s=Math.min(amount,target.shield);
-    target.shield-=s; amount-=s;
-  }
-  if(amount>0){
-    target.hp-=amount;
-    log(`${target.name} took ${amount} dmg (${reason})`);
-    if(target.hp<=0){ target.hp=0; target.dead=true; target.statuses=[]; }
-  }
+function applyDamage(t,amt){
+  if(t.shield>0){ const s=Math.min(t.shield,amt); t.shield-=s; amt-=s; }
+  if(amt>0){ t.hp-=amt; log(`${t.name} took ${amt} dmg`); }
+  if(t.hp<=0){ t.hp=0; t.dead=true; t.statuses=[]; log(`${t.name} defeated`); }
 }
+
+function endTurn(){ log('() End Turn'); nextTurn(); }
 
 function nextTurn(){
-  if(characters.length===0) return;
-  activeIndex = activeIndex===null ? 0 : (activeIndex+1)%characters.length;
-  let guard=0;
-  while(characters[activeIndex]?.dead && guard<characters.length){
-    activeIndex=(activeIndex+1)%characters.length; guard++;
-  }
-
-  const ch = characters[activeIndex];
-  if(!ch) return;
-
-  ch.statuses.slice().forEach(s=>{
+  if(!characters.length) return;
+  activeIndex=(activeIndex+1)%characters.length;
+  const ch=characters[activeIndex];
+  ch.statuses.forEach(s=>{
     if(s.type==='bleed') ch.hp-=s.stacks;
     if(s.type==='burn') ch.hp-=2*s.stacks;
     if(s.type==='regen') ch.hp+=3*s.stacks;
-    if(s.duration>0){ s.duration--; if(s.duration<=0) removeStatus(activeIndex,s.id); }
   });
-
-  log(`Turn → ${ch.name}`);
+  log(`() Turn → ${ch.name}`);
   renderAll();
 }
 
-document.addEventListener('DOMContentLoaded',init);
