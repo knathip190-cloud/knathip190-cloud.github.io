@@ -165,9 +165,80 @@ function renderGrid(){
   }
 }
 
-/* ================= MINIMAL STUBS ================= */
-function handleAttack(){ log('Attack (unchanged)'); }
-function gridClickHandler(){}
-function nextTurn(){ activeIndex=(activeIndex+1)%characters.length; renderAll(); }
+/* ================= COMBAT / MOVE / TURN (RESTORED & FIXED) ================= */
+
+function gridClickHandler(e){
+  const cell = e.target.closest('.cell'); if(!cell) return;
+  const x = parseInt(cell.dataset.x,10);
+  const y = parseInt(cell.dataset.y,10);
+
+  if(moveMode && activeIndex!==null){
+    const ch = characters[activeIndex];
+    const maxr = parseInt($('moveRange')?.value||'3',10);
+    const dist = Math.abs(ch.x-x)+Math.abs(ch.y-y);
+    if(dist<=maxr){
+      ch.x=x; ch.y=y;
+      moveMode=false;
+      $('moveBtn')?.classList.remove('hidden');
+      $('cancelMoveBtn')?.classList.add('hidden');
+      log(`${ch.name} moved to (${x},${y})`);
+      renderAll();
+    }
+    return;
+  }
+
+  const target = characters.find(c=>c.x===x&&c.y===y&&!c.dead);
+  if(target && activeIndex!==null){
+    $('attackTarget').value = target.id;
+    log(`Selected ${target.name} as target`);
+  }
+}
+
+function handleAttack(){
+  if(activeIndex===null) return alert('No active character');
+  const attacker = characters[activeIndex];
+  const targetId = $('attackTarget').value;
+  if(!targetId) return alert('Select target');
+  const dmg = parseInt($('attackDmg').value||'0',10);
+  const target = characters.find(c=>String(c.id)===String(targetId));
+  if(!target) return;
+  applyDamageToCharacter(target,dmg,`Attacked by ${attacker.name}`);
+  renderAll();
+}
+
+function applyDamageToCharacter(target,amount,reason=''){
+  if(amount<=0) return;
+  if(target.shield>0){
+    const s=Math.min(amount,target.shield);
+    target.shield-=s; amount-=s;
+  }
+  if(amount>0){
+    target.hp-=amount;
+    log(`${target.name} took ${amount} dmg (${reason})`);
+    if(target.hp<=0){ target.hp=0; target.dead=true; target.statuses=[]; }
+  }
+}
+
+function nextTurn(){
+  if(characters.length===0) return;
+  activeIndex = activeIndex===null ? 0 : (activeIndex+1)%characters.length;
+  let guard=0;
+  while(characters[activeIndex]?.dead && guard<characters.length){
+    activeIndex=(activeIndex+1)%characters.length; guard++;
+  }
+
+  const ch = characters[activeIndex];
+  if(!ch) return;
+
+  ch.statuses.slice().forEach(s=>{
+    if(s.type==='bleed') ch.hp-=s.stacks;
+    if(s.type==='burn') ch.hp-=2*s.stacks;
+    if(s.type==='regen') ch.hp+=3*s.stacks;
+    if(s.duration>0){ s.duration--; if(s.duration<=0) removeStatus(activeIndex,s.id); }
+  });
+
+  log(`Turn → ${ch.name}`);
+  renderAll();
+}
 
 document.addEventListener('DOMContentLoaded',init);
